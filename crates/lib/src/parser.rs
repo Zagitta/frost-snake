@@ -1,4 +1,4 @@
-use crate::transaction::{Transaction, TransactionData};
+use crate::transaction::*;
 use csv::StringRecord;
 use std::collections::HashMap;
 use thiserror::Error;
@@ -80,35 +80,35 @@ fn parse_transaction(
         .parse()?;
     let ty = record.get(field_map.ty.into()).ok_or(MISSING_TYPE_HEADER)?;
 
-    Ok(Transaction {
-        tx,
-        client,
-        data: match ty {
-            //case sensitive for performance and simplicity reasons
-            "withdrawal" => TransactionData::Withdrawal {
-                amount: record
-                    .get(field_map.amount.into())
-                    .ok_or(MISSING_AMOUNT_HEADER)?
-                    .parse()?,
-            },
-            "deposit" => TransactionData::Deposit {
-                amount: record
-                    .get(field_map.amount.into())
-                    .ok_or(MISSING_AMOUNT_HEADER)?
-                    .parse()?,
-            },
-            "dispute" => TransactionData::Dispute,
-            "chargeback" => TransactionData::ChargeBack,
-            "resolve" => TransactionData::Resolve,
-            _ => return Err(ParserError::InvalidTypeField(ty.to_string())),
-        },
+    Ok(match ty {
+        //case sensitive for performance and simplicity reasons
+        "withdrawal" => Transaction::new_withdrawal(
+            tx,
+            client,
+            record
+                .get(field_map.amount.into())
+                .ok_or(MISSING_AMOUNT_HEADER)?
+                .parse()?,
+        ),
+        "deposit" => Transaction::new_deposit(
+            tx,
+            client,
+            record
+                .get(field_map.amount.into())
+                .ok_or(MISSING_AMOUNT_HEADER)?
+                .parse()?,
+        ),
+        "dispute" => Transaction::new_dispute(tx, client),
+        "chargeback" => Transaction::new_charge_back(tx, client),
+        "resolve" => Transaction::new_resolve(tx, client),
+        _ => return Err(ParserError::InvalidTypeField(ty.to_string())),
     })
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use fixed_macro::types::I50F14 as currency;
+    use fixed_macro::types::U50F14 as currency;
 
     const FIELD_MAP: FieldToIndexMap = FieldToIndexMap {
         ty: 0,
@@ -124,7 +124,6 @@ mod test {
             Err(ParserError::MissingHeader(Header::Amount))
         ));
     }
-
     #[test]
     fn can_parse_deposit_transaction() {
         assert_eq!(
@@ -133,13 +132,7 @@ mod test {
                 FIELD_MAP
             )
             .unwrap(),
-            Transaction {
-                tx: 1,
-                client: 1,
-                data: TransactionData::Deposit {
-                    amount: currency!(10.0001)
-                }
-            }
+            Transaction::new_deposit(1, 1, currency!(10.0001))
         );
     }
     #[test]
@@ -150,35 +143,31 @@ mod test {
                 FIELD_MAP
             )
             .unwrap(),
-            Transaction {
-                tx: 1,
-                client: 1,
-                data: TransactionData::Withdrawal {
-                    amount: currency!(10.0001)
-                }
-            }
+            Transaction::new_withdrawal(1, 1, currency!(10.0001))
         );
+    }
+    #[test]
+    fn negative_withdrawal_fails() {
+        assert!(matches!(
+            parse_transaction(
+                &StringRecord::from(vec!["withdrawal", "1", "1", "-1"]),
+                FIELD_MAP,
+            ),
+            Err(ParserError::CurrencyParseError(_))
+        ));
     }
     #[test]
     fn can_parse_dispute_transaction() {
         assert_eq!(
             parse_transaction(&StringRecord::from(vec!["dispute", "1", "1"]), FIELD_MAP).unwrap(),
-            Transaction {
-                tx: 1,
-                client: 1,
-                data: TransactionData::Dispute
-            }
+            Transaction::new_dispute(1, 1)
         );
     }
     #[test]
     fn can_parse_resolve_transaction() {
         assert_eq!(
             parse_transaction(&StringRecord::from(vec!["resolve", "1", "1"]), FIELD_MAP).unwrap(),
-            Transaction {
-                tx: 1,
-                client: 1,
-                data: TransactionData::Resolve
-            }
+            Transaction::new_resolve(1, 1)
         );
     }
     #[test]
@@ -186,11 +175,7 @@ mod test {
         assert_eq!(
             parse_transaction(&StringRecord::from(vec!["chargeback", "1", "1"]), FIELD_MAP)
                 .unwrap(),
-            Transaction {
-                tx: 1,
-                client: 1,
-                data: TransactionData::ChargeBack
-            }
+            Transaction::new_charge_back(1, 1)
         );
     }
 }
