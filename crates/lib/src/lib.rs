@@ -1,4 +1,5 @@
 mod client;
+mod error;
 mod ledger;
 mod parser;
 mod transaction;
@@ -12,3 +13,7 @@ mod transaction;
 // With 64 bits we get a range of -562_949_953_421_311 to 562_949_953_421_312 which should be
 // enough for a while.
 pub type Currency = fixed::FixedI64<fixed::types::extra::U14>;
+
+pub type Result<T> = std::result::Result<T, error::Error>;
+
+pub use parser::parse_from_reader;

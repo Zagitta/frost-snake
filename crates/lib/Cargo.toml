@@ -9,5 +9,6 @@ edition = "2021"
 csv = "1"
 tracing = "0.1"
 tracing-subscriber = "0.2"
-fixed = { version = "1" }
+fixed = { version = "1", features = ["std"] }
 fixed-macro = "1"
+thiserror = "1"
