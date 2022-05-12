@@ -25,8 +25,54 @@ impl Transaction {
     pub fn new_withdrawal(tx: u32, client: u16, amount: UCurrency) -> Self {
         Self::Withdrawal(Withdrawal { tx, client, amount })
     }
+
+    #[inline]
+    pub fn get_tx(&self) -> u32 {
+        match self {
+            Transaction::Deposit(d) => d.tx,
+            Transaction::Dispute(d) => d.tx,
+            Transaction::ChargeBack(d) => d.tx,
+            Transaction::Resolve(d) => d.tx,
+            Transaction::Withdrawal(d) => d.tx,
+        }
+    }
+
+    #[inline]
+    pub fn get_client_id(&self) -> u16 {
+        match self {
+            Transaction::Deposit(d) => d.client,
+            Transaction::Dispute(d) => d.client,
+            Transaction::ChargeBack(d) => d.client,
+            Transaction::Resolve(d) => d.client,
+            Transaction::Withdrawal(d) => d.client,
+        }
+    }
+
+    pub fn execute<EXE, ERR>(self, executor: EXE) -> Result<EXE, ERR>
+    where
+        EXE: TransactionExecutor<Deposit, TransactionError = ERR>
+            + TransactionExecutor<Withdrawal, TransactionError = ERR>
+            + TransactionExecutor<Dispute, TransactionError = ERR>
+            + TransactionExecutor<Resolve, TransactionError = ERR>
+            + TransactionExecutor<ChargeBack, TransactionError = ERR>,
+    {
+        match self {
+            Transaction::Deposit(d) => executor.execute(d),
+            Transaction::Dispute(d) => executor.execute(d),
+            Transaction::ChargeBack(d) => executor.execute(d),
+            Transaction::Resolve(d) => executor.execute(d),
+            Transaction::Withdrawal(d) => executor.execute(d),
+        }
+    }
 }
-use crate::Currency;
+
+pub trait TransactionExecutor<TransactionType>
+where
+    Self: Sized,
+{
+    type TransactionError;
+    fn execute(self, transaction: TransactionType) -> Result<Self, Self::TransactionError>;
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Deposit {
