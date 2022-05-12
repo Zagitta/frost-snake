@@ -57,6 +57,16 @@ pub fn parse_from_reader<R: std::io::Read>(
         .flat_map(move |res| res.map(|rec| parse_transaction(&rec, field_map))))
 }
 
+pub fn parse_csv(
+    reader: impl std::io::Read,
+) -> Result<impl Iterator<Item = Result<Transaction, ParserError>>, ParserError> {
+    parse_from_reader(
+        csv::ReaderBuilder::new()
+            .trim(csv::Trim::All)
+            .from_reader(reader),
+    )
+}
+
 #[derive(Clone, Copy)]
 struct FieldToIndexMap {
     ty: u8,

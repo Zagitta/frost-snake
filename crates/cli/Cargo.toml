@@ -7,3 +7,5 @@ edition = "2021"
 
 [dependencies]
 frost-snake-lib = { path = "../lib" }
+fixed = { version = "1", features = ["std"] }
+eyre = "0.6.8"

@@ -21,5 +21,5 @@ pub type Result<T> = std::result::Result<T, error::Error>;
 
 pub use client::*;
 pub use ledger::*;
-pub use parser::parse_from_reader;
+pub use parser::{parse_csv, parse_from_reader};
 pub use transaction::*;
