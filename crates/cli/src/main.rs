@@ -1,14 +1,12 @@
-use eyre::Result;
-use frost_snake_lib::{
-    parse_csv, parse_from_reader, Ledger, TransactionExecutionError, TransactionExecutor,
-};
-use std::{env, fs::File, io::BufReader, process::exit};
+use eyre::{Context, Result};
+use frost_snake_lib::{parse_csv, Ledger, TransactionExecutor};
+use std::{env, fs::File, io::BufReader};
 
 fn main() -> Result<()> {
     let file_name = env::args()
         .nth(1)
         .ok_or(eyre::eyre!("Missing argument\nUsage: file_name.csv"))?;
-    let file = File::open(file_name)?;
+    let file = File::open(&file_name).with_context(|| format!("Couldn't find file {file_name}"))?;
     let reader = BufReader::new(file);
 
     let mut ledger = Ledger::default();
@@ -29,5 +27,3 @@ fn main() -> Result<()> {
 
     Ok(())
 }
-
-// [0.00004; 0.00009] => 0.00006
