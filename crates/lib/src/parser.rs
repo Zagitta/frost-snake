@@ -30,18 +30,15 @@ const MISSING_TX_HEADER: ParserError = ParserError::MissingHeader(Header::Tx);
 const MISSING_CLIENT_HEADER: ParserError = ParserError::MissingHeader(Header::Client);
 const MISSING_AMOUNT_HEADER: ParserError = ParserError::MissingHeader(Header::Amount);
 
-pub fn parse_from_reader<R: std::io::Read>(
-    mut reader: csv::Reader<R>,
-) -> Result<impl Iterator<Item = Result<Transaction, ParserError>>, ParserError> {
-    let mut header_to_index = reader
-        .headers()?
+fn extract_field_map(headers: &StringRecord) -> Result<FieldToIndexMap, ParserError> {
+    let mut header_to_index = headers
         .into_iter()
         .zip(0u8..u8::MAX)
         .collect::<HashMap<_, _>>();
 
     // build a struct with u8 indecies for each field
     // based on the headers
-    let field_map = FieldToIndexMap {
+    Ok(FieldToIndexMap {
         ty: header_to_index.remove("type").ok_or(MISSING_TYPE_HEADER)?,
         tx: header_to_index.remove("tx").ok_or(MISSING_TX_HEADER)?,
         client: header_to_index
@@ -50,7 +47,13 @@ pub fn parse_from_reader<R: std::io::Read>(
         amount: header_to_index
             .remove("amount")
             .ok_or(MISSING_AMOUNT_HEADER)?,
-    };
+    })
+}
+
+pub fn parse_from_reader<R: std::io::Read>(
+    mut reader: csv::Reader<R>,
+) -> Result<impl Iterator<Item = Result<Transaction, ParserError>>, ParserError> {
+    let field_map = extract_field_map(reader.headers()?)?;
 
     Ok(reader
         .into_records()
@@ -67,7 +70,7 @@ pub fn parse_csv(
     )
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FieldToIndexMap {
     ty: u8,
     tx: u8,
@@ -116,9 +119,9 @@ fn parse_transaction(
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
-    use fixed_macro::types::U50F14 as currency;
+    use fixed_macro::types::U48F16 as currency;
 
     const FIELD_MAP: FieldToIndexMap = FieldToIndexMap {
         ty: 0,
@@ -167,6 +170,16 @@ mod test {
         ));
     }
     #[test]
+    fn negative_deposit_fails() {
+        assert!(matches!(
+            parse_transaction(
+                &StringRecord::from(vec!["deposit", "1", "1", "-1"]),
+                FIELD_MAP,
+            ),
+            Err(ParserError::CurrencyParseError(_))
+        ));
+    }
+    #[test]
     fn can_parse_dispute_transaction() {
         assert_eq!(
             parse_transaction(&StringRecord::from(vec!["dispute", "1", "1"]), FIELD_MAP).unwrap(),
@@ -187,5 +200,44 @@ mod test {
                 .unwrap(),
             Transaction::new_charge_back(1, 1)
         );
+    }
+
+    #[test]
+    fn can_extract_field_map() {
+        assert_eq!(
+            extract_field_map(&StringRecord::from(vec!["type", "tx", "client", "amount"])).unwrap(),
+            FieldToIndexMap {
+                ty: 0,
+                tx: 1,
+                client: 2,
+                amount: 3
+            }
+        );
+        assert_eq!(
+            extract_field_map(&StringRecord::from(vec!["tx", "client", "amount", "type"])).unwrap(),
+            FieldToIndexMap {
+                tx: 0,
+                client: 1,
+                amount: 2,
+                ty: 3,
+            }
+        );
+    }
+
+    #[test]
+    fn extracting_missing_header_fields_fails() {
+        assert!(matches!(
+            extract_field_map(&StringRecord::from(vec![""])),
+            Err(ParserError::MissingHeader(_))
+        ));
+
+        assert!(matches!(
+            extract_field_map(&StringRecord::from(vec!["type"])),
+            Err(ParserError::MissingHeader(_))
+        ));
+        assert!(matches!(
+            extract_field_map(&StringRecord::from(vec!["type", "tx", "client"])),
+            Err(ParserError::MissingHeader(_))
+        ));
     }
 }

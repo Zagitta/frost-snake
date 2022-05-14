@@ -1,6 +1,9 @@
 use crate::UCurrency;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, strum_macros::EnumVariantNames, strum_macros::EnumDiscriminants,
+)]
+#[strum_discriminants(derive(strum_macros::FromRepr))]
 pub enum Transaction {
     Deposit(Deposit),
     Dispute(Dispute),

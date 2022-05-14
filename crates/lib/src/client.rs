@@ -231,8 +231,8 @@ mod tests {
     use super::ClientAccount;
     use crate::transaction::Transaction;
     use crate::{Deposit, DepositState, TransactionExecutionError};
-    use fixed_macro::types::I50F14 as icur;
-    use fixed_macro::types::U50F14 as ucur;
+    use fixed_macro::types::I48F16 as icur;
+    use fixed_macro::types::U48F16 as ucur;
 
     #[allow(non_upper_case_globals)] //make it easier to construct ClientAccount
     const client: u16 = 1;
@@ -318,25 +318,33 @@ mod tests {
         assert_eq!(c3, c1);
     }
     #[test]
-    fn cant_charge_back_undisputed_transaction() {
+    fn cant_charge_back_invalid_transaction_id() {
         let ac = ClientAccount {
             id: client,
             ..Default::default()
         };
+        let tx = 1;
 
         assert_eq!(
-            ac.clone().execute(Transaction::new_charge_back(1, client)),
-            Err(TransactionExecutionError::DepositNotFound(1))
+            ac.clone().execute(Transaction::new_charge_back(tx, client)),
+            Err(TransactionExecutionError::DepositNotFound(tx))
         );
-
+    }
+    #[test]
+    fn cant_resolve_undisputed_transaction() {
+        let ac = ClientAccount {
+            id: client,
+            ..Default::default()
+        };
+        let tx = 1;
         let amount = ucur!(1);
-        let deposit = Transaction::new_deposit(1, client, amount);
+        let deposit = Transaction::new_deposit(tx, client, amount);
         let resolve = Transaction::new_resolve(deposit.get_tx(), client);
 
         assert_eq!(
             ac.execute(deposit).unwrap().execute(resolve),
             Err(TransactionExecutionError::InvalidDepositState {
-                tx: 1,
+                tx,
                 expected_state: DepositState::Disputed,
                 actual_state: DepositState::Ok
             })

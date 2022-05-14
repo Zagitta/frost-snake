@@ -16,6 +16,12 @@ pub struct Ledger {
     clients: HashMap<u16, ClientAccount>,
 }
 
+impl Ledger {
+    pub fn iter(&self) -> impl Iterator<Item = &ClientAccount> {
+        self.clients.values()
+    }
+}
+
 impl TransactionExecutor<Transaction> for Ledger {
     type TransactionError = Error;
 
