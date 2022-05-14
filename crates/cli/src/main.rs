@@ -1,5 +1,5 @@
 use eyre::Result;
-use frost_snake_lib::{execute, ICurrency, UCurrency};
+use frost_snake_lib::execute;
 use std::{env, fs::File, io::BufReader};
 
 fn main() -> Result<()> {
