@@ -2,7 +2,7 @@ use crate::{
     client::{ClientAccount, TransactionExecutionError},
     transaction::{Transaction, TransactionExecutor},
 };
-use im::HashMap;
+use im_rc::HashMap;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -22,10 +22,10 @@ impl Ledger {
     }
 }
 
-impl TransactionExecutor<Transaction> for Ledger {
+impl TransactionExecutor<Transaction> for &mut Ledger {
     type TransactionError = Error;
 
-    fn execute(mut self, transaction: Transaction) -> Result<Self, Self::TransactionError> {
+    fn execute(self, transaction: Transaction) -> Result<Self, Self::TransactionError> {
         let client_id = transaction.get_client_id();
 
         let client = transaction.execute(
@@ -35,7 +35,7 @@ impl TransactionExecutor<Transaction> for Ledger {
                 .unwrap_or_else(|| ClientAccount::new(client_id)),
         )?;
 
-        self.clients = self.clients.update(client_id, client);
+        self.clients.insert(client.id, client);
 
         Ok(self)
     }

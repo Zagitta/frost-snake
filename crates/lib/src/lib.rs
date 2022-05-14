@@ -35,11 +35,26 @@ pub fn execute<R: std::io::Read, W: std::io::Write>(
     let mut ledger = Ledger::default();
     for transaction in transactions {
         if let Ok(transaction) = transaction {
-            if let Ok(l) = ledger.clone().execute(transaction) {
-                ledger = l;
-            }
+            ledger.execute(transaction).ok();
         }
     }
 
     Ok(write_csv(&ledger, writer)?)
+}
+
+#[cfg(test)]
+mod tests {
+
+    use fixed_macro::types::U48F16 as ucur;
+
+    use crate::UCurrency;
+    #[test]
+    fn test_currency() {
+        let my_delta = ucur!(0.0001);
+        let min_delta = UCurrency::DELTA;
+        println!("{min_delta}");
+
+        assert_eq!((min_delta / my_delta) * my_delta, ucur!(0));
+        assert_eq!((ucur!(1) + min_delta) / my_delta * my_delta, ucur!(1.0))
+    }
 }

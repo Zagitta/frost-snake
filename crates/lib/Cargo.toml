@@ -10,7 +10,7 @@ az = "1"
 csv = "1"
 fixed = { version = "1", features = ["std"] }
 fixed-macro = "1"
-im = "15"
+im-rc = "15"
 itoa = "1"
 thiserror = "1"
 tracing = "0.1"

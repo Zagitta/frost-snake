@@ -29,7 +29,7 @@ pub struct ClientAccount {
     pub locked: bool,
     pub available: ICurrency,
     pub held: UCurrency,
-    deposits: im::HashMap<u32, (Deposit, DepositState)>,
+    deposits: im_rc::HashMap<u32, (Deposit, DepositState)>,
 }
 
 impl ClientAccount {
@@ -41,7 +41,7 @@ impl ClientAccount {
     }
 
     pub fn total(&self) -> ICurrency {
-        // Panic on the edge case that the client has +- 500 trillion assets...
+        // Panic on the edge case that the client has +- ~140 trillion assets...
         self.available.checked_add_unsigned(self.held).unwrap()
     }
 
@@ -56,6 +56,8 @@ pub enum TransactionExecutionError {
     InsufficientFunds,
     #[error("The deposit tx = {0}, was not found")]
     DepositNotFound(u32),
+    #[error("Account is locked")]
+    AccountLocked,
     #[error(
         "The deposit tx = {tx} state is invalid, expected {expected_state} but was {actual_state}"
     )]
@@ -71,7 +73,7 @@ pub enum TransactionExecutionError {
 }
 
 fn get_deposit(
-    deposits: &mut im::HashMap<u32, (Deposit, DepositState)>,
+    deposits: &mut im_rc::HashMap<u32, (Deposit, DepositState)>,
     tx: u32,
 ) -> Result<(&Deposit, &mut DepositState), TransactionExecutionError> {
     let (deposit, state) = deposits
@@ -82,7 +84,7 @@ fn get_deposit(
 }
 
 fn get_deposit_with_state(
-    deposits: &mut im::HashMap<u32, (Deposit, DepositState)>,
+    deposits: &mut im_rc::HashMap<u32, (Deposit, DepositState)>,
     tx: u32,
     expected_state: DepositState,
 ) -> Result<(&Deposit, &mut DepositState), TransactionExecutionError> {
@@ -105,14 +107,9 @@ impl TransactionExecutor<Deposit> for ClientAccount {
     fn execute(mut self, deposit: Deposit) -> Result<Self, Self::TransactionError> {
         assert_eq!(self.id, deposit.client);
 
-        let amount = deposit
-            .amount
-            .checked_as::<ICurrency>()
-            .ok_or(TransactionExecutionError::Overflow)?;
-
         self.available = self
             .available
-            .checked_add(amount)
+            .checked_add_unsigned(deposit.amount)
             .ok_or(TransactionExecutionError::Overflow)?;
 
         self.deposits
@@ -127,19 +124,20 @@ impl TransactionExecutor<Withdrawal> for ClientAccount {
     fn execute(mut self, withdrawal: Withdrawal) -> Result<Self, Self::TransactionError> {
         assert_eq!(self.id, withdrawal.client);
 
-        let amount = withdrawal
-            .amount
-            .checked_as::<ICurrency>()
-            .ok_or(TransactionExecutionError::Overflow)?;
-
-        if self.available < amount {
-            return Err(TransactionExecutionError::InsufficientFunds);
+        // This is not defined in the specification but it does not
+        // make sense if money can be withdrawn from a locked account
+        if self.locked {
+            return Err(TransactionExecutionError::AccountLocked);
         }
 
         self.available = self
             .available
-            .checked_sub(amount)
+            .checked_sub_unsigned(withdrawal.amount)
             .ok_or(TransactionExecutionError::Underflow)?;
+
+        if self.available < ICurrency::ZERO {
+            return Err(TransactionExecutionError::InsufficientFunds);
+        }
 
         Ok(self)
     }
@@ -154,14 +152,9 @@ impl TransactionExecutor<Dispute> for ClientAccount {
 
         let (deposit, state) = get_deposit_with_state(&mut self.deposits, tx, DepositState::Ok)?;
 
-        let amount = deposit
-            .amount
-            .checked_as::<ICurrency>()
-            .ok_or(TransactionExecutionError::Overflow)?;
-
         self.available = self
             .available
-            .checked_sub(amount)
+            .checked_sub_unsigned(deposit.amount)
             .ok_or(TransactionExecutionError::Underflow)?;
 
         self.held = self
@@ -185,20 +178,15 @@ impl TransactionExecutor<Resolve> for ClientAccount {
         let (deposit, state) =
             get_deposit_with_state(&mut self.deposits, tx, DepositState::Disputed)?;
 
-        let amount = deposit
-            .amount
-            .checked_as::<ICurrency>()
-            .ok_or(TransactionExecutionError::Overflow)?;
-
         self.available = self
             .available
-            .checked_add(amount)
+            .checked_add_unsigned(deposit.amount)
             .ok_or(TransactionExecutionError::Overflow)?;
 
         self.held = self
             .held
             .checked_sub(deposit.amount)
-            .ok_or(TransactionExecutionError::Underflow)?;
+            .expect("held should never underflow");
 
         *state = DepositState::Ok;
 
@@ -212,12 +200,13 @@ impl TransactionExecutor<ChargeBack> for ClientAccount {
     fn execute(mut self, charge_back: ChargeBack) -> Result<Self, Self::TransactionError> {
         assert_eq!(self.id, charge_back.client);
 
-        let (deposit, state) = get_deposit(&mut self.deposits, charge_back.tx)?;
+        let (deposit, state) =
+            get_deposit_with_state(&mut self.deposits, charge_back.tx, DepositState::Disputed)?;
 
         self.held = self
             .held
             .checked_sub(deposit.amount)
-            .ok_or(TransactionExecutionError::Underflow)?;
+            .expect("held should never underflow");
 
         self.locked = true;
         *state = DepositState::ChargedBack;
@@ -249,7 +238,7 @@ mod tests {
                 held: ucur!(0),
                 available: icur!(1),
                 locked: false,
-                deposits: im::hashmap! {
+                deposits: im_rc::hashmap! {
                     tx => (Deposit{amount, client, tx}, DepositState::Ok)
                 }
             })
@@ -292,7 +281,7 @@ mod tests {
                 held: amount,
                 available: icur!(0),
                 locked: false,
-                deposits: im::hashmap! {
+                deposits: im_rc::hashmap! {
                     tx => (Deposit{amount, client, tx}, DepositState::Disputed)
                 }
             })
@@ -377,7 +366,7 @@ mod tests {
                 available: icur!(-1),
                 held: ucur!(0),
                 locked: true,
-                deposits: im::hashmap! {
+                deposits: im_rc::hashmap! {
                     tx => (Deposit{amount, client, tx}, DepositState::ChargedBack)
                 }
             })
@@ -403,6 +392,33 @@ mod tests {
                 .unwrap()
                 .execute(dispute),
             Err(TransactionExecutionError::DepositNotFound(tx + 1))
+        )
+    }
+    #[test]
+    fn cant_charge_back_multiple_times() {
+        let ac = ClientAccount {
+            id: client,
+            ..Default::default()
+        };
+        let tx = 1;
+        let amount = ucur!(1);
+        let deposit = Transaction::new_deposit(tx, client, amount);
+        let dispute = Transaction::new_dispute(tx, client);
+        let charge_back = Transaction::new_charge_back(tx, client);
+
+        assert_eq!(
+            ac.execute(deposit)
+                .unwrap()
+                .execute(dispute)
+                .unwrap()
+                .execute(charge_back.clone())
+                .unwrap()
+                .execute(charge_back),
+            Err(TransactionExecutionError::InvalidDepositState {
+                tx,
+                expected_state: DepositState::Disputed,
+                actual_state: DepositState::ChargedBack
+            })
         )
     }
 }
