@@ -1,58 +1,24 @@
-use std::time::Instant;
+use std::{env, fs::File, io::BufReader, time::Instant};
 
-use criterion::{criterion_group, criterion_main, Criterion};
-use frost_snake_lib::{Ledger, Transaction, TransactionExecutor, UCurrency};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use frost_snake_lib::{execute, Ledger, Transaction, TransactionExecutor, UCurrency};
+use glob::glob;
 
 pub fn execution_bench(c: &mut Criterion) {
-    let amount: UCurrency = UCurrency::from_num(123);
+    let cases = &[(100_0000, "tests/test-cases/100k-complex.input.csv")];
 
-    c.bench_function("deposits all 1 client", |b| {
-        b.iter_custom(|iters| {
-            let mut ledger = Ledger::default();
-            let start = Instant::now();
-            for i in 1..iters {
-                ledger = ledger
-                    .clone()
-                    .execute(Transaction::new_deposit(i as u32, 1, amount))
-                    .unwrap()
-            }
-            start.elapsed()
-        })
-    });
-    c.bench_function("withdrawals all 1 client", |b| {
-        b.iter_custom(|iters| {
-            let mut ledger = Ledger::default();
-            for i in 1..iters {
-                ledger = ledger
-                    .clone()
-                    .execute(Transaction::new_deposit(i as u32, 1, amount))
-                    .unwrap()
-            }
-            let start = Instant::now();
+    let mut group = c.benchmark_group("execute");
+    for (size, path) in cases {
+        group.throughput(Throughput::Elements(*size as u64));
 
-            for i in 1..iters {
-                ledger = ledger
-                    .clone()
-                    .execute(Transaction::new_withdrawal(i as u32, 1, amount))
-                    .unwrap()
-            }
-            start.elapsed()
-        })
-    });
-
-    c.bench_function("deposits 1 per client", |b| {
-        b.iter_custom(|iters| {
-            let mut ledger = Ledger::default();
-            let start = Instant::now();
-            for i in 1..iters {
-                ledger = ledger
-                    .clone()
-                    .execute(Transaction::new_deposit(i as u32, i as u16, amount))
-                    .unwrap()
-            }
-            start.elapsed()
-        })
-    });
+        group.bench_with_input(BenchmarkId::from_parameter(size), path, |b, path| {
+            b.iter(|| {
+                let reader = BufReader::new(File::open(path).unwrap());
+                let writer = Vec::with_capacity(1024 * 1024 * 1024);
+                execute(reader, writer)
+            });
+        });
+    }
 }
 
 criterion_group!(benches, execution_bench);

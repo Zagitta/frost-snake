@@ -1,76 +1,38 @@
 use csv::WriterBuilder;
 use frost_snake_lib::{
-    ChargeBack, Deposit, DepositState, Dispute, Resolve, Transaction, TransactionDiscriminants,
+    ChargeBack, Deposit, Dispute, Resolve, Transaction, TransactionDiscriminants,
     TransactionExecutor, UCurrency, Withdrawal,
 };
+use rand::distributions::WeightedIndex;
 use rand::prelude::*;
-use rand::{distributions::WeightedIndex, seq::SliceRandom};
+use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::io::{Cursor, Write};
 use strum::VariantNames;
 
 #[derive(Debug, Default)]
 struct GeneratorState {
-    tx_to_idx: Vec<Option<usize>>,
-    deposits: Vec<(Deposit, DepositState)>,
-    disputes: Vec<Dispute>,
-    chargebacks: Vec<ChargeBack>,
-    resolves: Vec<Resolve>,
-    withdrawal: Vec<Withdrawal>,
+    transactions: Vec<Transaction>,
+    tx_to_idx: HashMap<u32, usize>,
+    ok_deposits: HashSet<usize>,
+    disputed_deposits: HashSet<usize>,
+    charged_back_deposits: HashSet<usize>,
 }
 
 impl GeneratorState {
-    fn deposit_get(&self, tx: u32) -> &(Deposit, DepositState) {
-        &self.deposits[self.tx_to_idx[tx as usize].unwrap()]
-    }
-    fn deposit_get_mut(&mut self, tx: u32) -> &mut (Deposit, DepositState) {
-        &mut self.deposits[self.tx_to_idx[tx as usize].unwrap()]
-    }
-    fn skip_tx(mut self) -> Self {
-        self.tx_to_idx.push(None);
-        self
-    }
-
     fn into_iter(self) -> impl Iterator<Item = Transaction> {
-        let deposits = self
-            .deposits
-            .into_iter()
-            .map(|(t, _)| Transaction::Deposit(t))
-            .collect::<Vec<_>>();
-        let disputes = self
-            .disputes
-            .into_iter()
-            .map(|t| Transaction::Dispute(t))
-            .collect::<Vec<_>>();
-        let chargebacks = self
-            .chargebacks
-            .into_iter()
-            .map(|t| Transaction::ChargeBack(t))
-            .collect::<Vec<_>>();
-        let resolves = self
-            .resolves
-            .into_iter()
-            .map(|t| Transaction::Resolve(t))
-            .collect::<Vec<_>>();
-        let withdrawal = self
-            .withdrawal
-            .into_iter()
-            .map(|t| Transaction::Withdrawal(t))
-            .collect::<Vec<_>>();
-
-        itertools::kmerge_by(
-            [deposits, withdrawal, disputes, resolves, chargebacks],
-            |a: &Transaction, b: &Transaction| a.get_tx() < b.get_tx(),
-        )
+        self.transactions.into_iter()
     }
 }
 
 impl TransactionExecutor<Deposit> for GeneratorState {
     type TransactionError = Infallible;
 
-    fn execute(mut self, transaction: Deposit) -> Result<Self, Self::TransactionError> {
-        self.tx_to_idx.push(Some(self.deposits.len()));
-        self.deposits.push((transaction, DepositState::Ok));
+    fn execute(mut self, deposit: Deposit) -> Result<Self, Self::TransactionError> {
+        self.tx_to_idx.insert(deposit.tx, self.transactions.len());
+        self.ok_deposits.insert(self.transactions.len());
+        self.transactions
+            .push(Transaction::Deposit(deposit.clone()));
         Ok(self)
     }
 }
@@ -79,10 +41,10 @@ impl TransactionExecutor<Dispute> for GeneratorState {
     type TransactionError = Infallible;
 
     fn execute(mut self, transaction: Dispute) -> Result<Self, Self::TransactionError> {
-        let (_, state) = self.deposit_get_mut(transaction.tx);
-        *state = DepositState::Disputed;
-        self.tx_to_idx.push(Some(self.disputes.len()));
-        self.disputes.push(transaction);
+        let idx = self.tx_to_idx.get(&transaction.tx).unwrap();
+        self.ok_deposits.remove(idx);
+        self.disputed_deposits.insert(*idx);
+        self.transactions.push(Transaction::Dispute(transaction));
         Ok(self)
     }
 }
@@ -90,10 +52,10 @@ impl TransactionExecutor<ChargeBack> for GeneratorState {
     type TransactionError = Infallible;
 
     fn execute(mut self, transaction: ChargeBack) -> Result<Self, Self::TransactionError> {
-        let (_, state) = self.deposit_get_mut(transaction.tx);
-        *state = DepositState::ChargedBack;
-        self.tx_to_idx.push(Some(self.chargebacks.len()));
-        self.chargebacks.push(transaction);
+        let idx = self.tx_to_idx.get(&transaction.tx).unwrap();
+        self.disputed_deposits.remove(idx);
+        self.charged_back_deposits.insert(*idx);
+        self.transactions.push(Transaction::ChargeBack(transaction));
         Ok(self)
     }
 }
@@ -101,10 +63,10 @@ impl TransactionExecutor<Resolve> for GeneratorState {
     type TransactionError = Infallible;
 
     fn execute(mut self, transaction: Resolve) -> Result<Self, Self::TransactionError> {
-        let (_, state) = self.deposit_get_mut(transaction.tx);
-        *state = DepositState::Ok;
-        self.tx_to_idx.push(Some(self.resolves.len()));
-        self.resolves.push(transaction);
+        let idx = self.tx_to_idx.get(&transaction.tx).unwrap();
+        self.disputed_deposits.remove(idx);
+        self.ok_deposits.insert(*idx);
+        self.transactions.push(Transaction::Resolve(transaction));
         Ok(self)
     }
 }
@@ -112,8 +74,7 @@ impl TransactionExecutor<Withdrawal> for GeneratorState {
     type TransactionError = Infallible;
 
     fn execute(mut self, transaction: Withdrawal) -> Result<Self, Self::TransactionError> {
-        self.tx_to_idx.push(Some(self.withdrawal.len()));
-        self.withdrawal.push(transaction);
+        self.transactions.push(Transaction::Withdrawal(transaction));
         Ok(self)
     }
 }
@@ -164,7 +125,7 @@ fn main() {
     let mut rng1 = thread_rng();
     let mut rng2 = thread_rng();
 
-    let generator = (0..100000)
+    let generator = (0..100_000_000)
         .map(|i| {
             (
                 i,
@@ -179,51 +140,28 @@ fn main() {
                     UCurrency::from_num(rng2.gen::<f32>()),
                 ),
                 TransactionDiscriminants::Dispute => {
-                    if state.deposits.is_empty() {
-                        return state.skip_tx();
+                    if state.ok_deposits.is_empty() {
+                        return state;
                     }
-                    let (deposit, deposit_state) = state.deposits.choose(&mut rng2).unwrap();
-                    if *deposit_state != DepositState::Ok {
-                        return state.skip_tx();
-                    }
-                    Transaction::new_dispute(deposit.tx, deposit.client)
+                    let idx = *state.ok_deposits.iter().choose(&mut rng2).unwrap();
+                    let deposit = &state.transactions[idx];
+                    Transaction::new_dispute(deposit.get_tx(), deposit.get_client_id())
                 }
                 TransactionDiscriminants::ChargeBack => {
-                    let (tx, client) = if rng2.gen() {
-                        if state.deposits.is_empty() {
-                            return state.skip_tx();
-                        }
-
-                        let (deposit, deposit_state) = state.deposits.choose(&mut rng2).unwrap();
-                        if *deposit_state != DepositState::Ok {
-                            return state.skip_tx();
-                        }
-                        (deposit.tx, deposit.client)
-                    } else {
-                        if state.disputes.is_empty() {
-                            return state.skip_tx();
-                        }
-
-                        let dispute = state.disputes.choose(&mut rng2).unwrap();
-
-                        (dispute.tx, dispute.client)
-                    };
-
-                    Transaction::new_charge_back(tx, client)
+                    if state.disputed_deposits.is_empty() {
+                        return state;
+                    }
+                    let idx = *state.disputed_deposits.iter().choose(&mut rng2).unwrap();
+                    let deposit = &state.transactions[idx];
+                    Transaction::new_charge_back(deposit.get_tx(), deposit.get_client_id())
                 }
                 TransactionDiscriminants::Resolve => {
-                    if state.disputes.is_empty() {
-                        return state.skip_tx();
+                    if state.disputed_deposits.is_empty() {
+                        return state;
                     }
-
-                    let dispute = state.disputes.choose(&mut rng2).unwrap();
-                    let (_, deposit_state) = state.deposit_get(dispute.tx);
-
-                    if *deposit_state != DepositState::Disputed {
-                        return state.skip_tx();
-                    }
-
-                    Transaction::new_resolve(dispute.tx, dispute.client)
+                    let idx = *state.disputed_deposits.iter().choose(&mut rng2).unwrap();
+                    let deposit = &state.transactions[idx];
+                    Transaction::new_resolve(deposit.get_tx(), deposit.get_client_id())
                 }
                 TransactionDiscriminants::Withdrawal => Transaction::new_withdrawal(
                     i,

@@ -67,6 +67,53 @@ impl Transaction {
             Transaction::Withdrawal(d) => executor.execute(d),
         }
     }
+
+    pub fn as_deposit(&self) -> Option<&Deposit> {
+        if let Self::Deposit(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+    pub fn as_deposit_mut(&mut self) -> Option<&mut Deposit> {
+        if let Self::Deposit(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_dispute(&self) -> Option<&Dispute> {
+        if let Self::Dispute(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_charge_back(&self) -> Option<&ChargeBack> {
+        if let Self::ChargeBack(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_resolve(&self) -> Option<&Resolve> {
+        if let Self::Resolve(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_withdrawal(&self) -> Option<&Withdrawal> {
+        if let Self::Withdrawal(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
 }
 
 pub trait TransactionExecutor<TransactionType>
