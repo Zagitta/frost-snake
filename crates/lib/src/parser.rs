@@ -1,5 +1,5 @@
 use crate::transaction::*;
-use ascii::AsciiStr;
+use ascii::AsAsciiStr;
 use csv::{ByteRecord, StringRecord};
 use std::collections::HashMap;
 use thiserror::Error;
@@ -108,47 +108,50 @@ fn parse_transaction(
     record: &ByteRecord,
     field_map: FieldToIndexMap,
 ) -> Result<Transaction, ParserError> {
-    let tx = AsciiStr::from_ascii(record.get(field_map.tx.into()).ok_or(MISSING_TX_HEADER)?)?
-        .as_str()
+    let tx = record
+        .get(field_map.tx.into())
+        .ok_or(MISSING_TX_HEADER)?
+        .as_ascii_str()?
         .trim()
-        .parse()?;
-    let client = AsciiStr::from_ascii(
-        record
-            .get(field_map.client.into())
-            .ok_or(MISSING_CLIENT_HEADER)?,
-    )?
-    .as_str()
-    .trim()
-    .parse()?;
-    let ty = AsciiStr::from_ascii(record.get(field_map.ty.into()).ok_or(MISSING_TYPE_HEADER)?)?
         .as_str()
-        .trim();
+        .parse()?;
+    let client = record
+        .get(field_map.client.into())
+        .ok_or(MISSING_CLIENT_HEADER)?
+        .as_ascii_str()?
+        .trim()
+        .as_str()
+        .parse()?;
+    let ty = record
+        .get(field_map.ty.into())
+        .ok_or(MISSING_TYPE_HEADER)?
+        .as_ascii_str()?
+        .trim()
+        .as_str();
 
     Ok(match ty {
         //case sensitive for performance and simplicity reasons
         "withdrawal" => Transaction::new_withdrawal(
             tx,
             client,
-            AsciiStr::from_ascii(
-                record
-                    .get(field_map.amount.into())
-                    .ok_or(MISSING_AMOUNT_HEADER)?,
-            )?
-            .as_str()
-            .trim()
-            .parse()?,
+            record
+                .get(field_map.amount.into())
+                .ok_or(MISSING_AMOUNT_HEADER)?
+                .as_ascii_str()?
+                .as_str()
+                .trim()
+                .parse()?,
         ),
         "deposit" => Transaction::new_deposit(
             tx,
             client,
-            AsciiStr::from_ascii(
-                record
-                    .get(field_map.amount.into())
-                    .ok_or(MISSING_AMOUNT_HEADER)?,
-            )?
-            .as_str()
-            .trim()
-            .parse()?,
+            record
+                .get(field_map.amount.into())
+                .ok_or(MISSING_AMOUNT_HEADER)?
+                .as_ascii_str()?
+                .trim()
+                .as_str()
+                .parse()?,
         ),
         "dispute" => Transaction::new_dispute(tx, client),
         "chargeback" => Transaction::new_charge_back(tx, client),
