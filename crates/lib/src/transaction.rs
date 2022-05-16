@@ -50,24 +50,6 @@ impl Transaction {
             Transaction::Withdrawal(d) => d.client,
         }
     }
-
-    pub fn execute<EXE, ERR>(self, executor: EXE) -> Result<EXE, ERR>
-    where
-        EXE: TransactionExecutor<Deposit, TransactionError = ERR>
-            + TransactionExecutor<Withdrawal, TransactionError = ERR>
-            + TransactionExecutor<Dispute, TransactionError = ERR>
-            + TransactionExecutor<Resolve, TransactionError = ERR>
-            + TransactionExecutor<ChargeBack, TransactionError = ERR>,
-    {
-        match self {
-            Transaction::Deposit(d) => executor.execute(d),
-            Transaction::Dispute(d) => executor.execute(d),
-            Transaction::ChargeBack(d) => executor.execute(d),
-            Transaction::Resolve(d) => executor.execute(d),
-            Transaction::Withdrawal(d) => executor.execute(d),
-        }
-    }
-
     pub fn as_deposit(&self) -> Option<&Deposit> {
         if let Self::Deposit(v) = self {
             Some(v)
