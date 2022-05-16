@@ -1,5 +1,7 @@
 [workspace]
 members = ["crates/*"]
+default-members = ["crates/cli", "crates/lib"]
 
 [profile.release]
 debug = true
+lto = "fat"

@@ -161,7 +161,8 @@ impl ClientAccount {
 #[cfg(test)]
 mod tests {
     use super::ClientAccount;
-    use crate::{ChargeBack, Deposit, DepositState, Dispute, TransactionExecutor, Withdrawal};
+    use crate::ChargeBack;
+    use crate::{Deposit, DepositState, Dispute, Resolve, Withdrawal};
     use fixed_macro::types::I48F16 as icur;
     use fixed_macro::types::U48F16 as ucur;
 
@@ -224,5 +225,86 @@ mod tests {
                 DepositState::Disputed
             ))
         );
+    }
+
+    #[test]
+    fn can_resolve() {
+        assert_eq!(
+            ClientAccount {
+                id: client,
+                held: ucur!(1.0),
+                ..Default::default()
+            }
+            .resolve(
+                Resolve { tx: 1, client },
+                ucur!(1.0),
+                DepositState::Disputed
+            ),
+            Ok((
+                ClientAccount {
+                    id: client,
+                    locked: false,
+                    available: icur!(1),
+                    held: ucur!(0),
+                },
+                DepositState::Ok
+            ))
+        );
+    }
+    #[test]
+    fn can_charge_back() {
+        assert_eq!(
+            ClientAccount {
+                id: client,
+                held: ucur!(1.0),
+                ..Default::default()
+            }
+            .charge_back(
+                ChargeBack { tx: 1, client },
+                ucur!(1.0),
+                DepositState::Disputed
+            ),
+            Ok((
+                ClientAccount {
+                    id: client,
+                    locked: true,
+                    available: icur!(0),
+                    held: ucur!(0),
+                },
+                DepositState::ChargedBack
+            ))
+        );
+    }
+
+    #[test]
+    fn total_is_correct() {
+        let mut acc = ClientAccount::new(client);
+        let tx = 1;
+        let amount = ucur!(1);
+        assert_eq!(acc.total(), icur!(0));
+        acc = acc.deposit(Deposit { tx, client, amount }).unwrap();
+        assert_eq!(acc.total(), amount);
+        acc = acc
+            .withdraw(Withdrawal {
+                tx: 1,
+                client,
+                amount,
+            })
+            .unwrap();
+        assert_eq!(acc.total(), icur!(0));
+
+        (acc, _) = acc
+            .deposit(Deposit { tx, client, amount })
+            .unwrap()
+            .dispute(Dispute { tx, client }, amount, DepositState::Ok)
+            .unwrap();
+
+        assert_eq!(acc.total(), amount);
+
+        (acc, _) = acc
+            .charge_back(ChargeBack { tx, client }, amount, DepositState::Disputed)
+            .unwrap();
+
+        assert_eq!(acc.total(), icur!(0));
     }
 }

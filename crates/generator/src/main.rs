@@ -20,15 +20,15 @@ struct GeneratorState {
 }
 
 impl GeneratorState {
-    fn into_iter(self) -> impl Iterator<Item = Transaction> {
+    pub fn into_iter(self) -> impl Iterator<Item = Transaction> {
         self.transactions.into_iter()
     }
 }
 
-impl TransactionExecutor<&Deposit> for GeneratorState {
+impl TransactionExecutor<&Deposit> for &mut GeneratorState {
     type TransactionError = Infallible;
 
-    fn execute(mut self, transaction: &Deposit) -> Result<Self, Self::TransactionError> {
+    fn execute(self, transaction: &Deposit) -> Result<Self, Self::TransactionError> {
         self.deposit_tx_to_idx
             .insert(transaction.tx, self.transactions.len());
         self.ok_deposits.insert(self.transactions.len());
@@ -36,40 +36,40 @@ impl TransactionExecutor<&Deposit> for GeneratorState {
     }
 }
 
-impl TransactionExecutor<&Dispute> for GeneratorState {
+impl TransactionExecutor<&Dispute> for &mut GeneratorState {
     type TransactionError = Infallible;
 
-    fn execute(mut self, transaction: &Dispute) -> Result<Self, Self::TransactionError> {
+    fn execute(self, transaction: &Dispute) -> Result<Self, Self::TransactionError> {
         let idx = self.deposit_tx_to_idx.get(&transaction.tx).unwrap();
         self.ok_deposits.remove(idx);
         self.disputed_deposits.insert(*idx);
         Ok(self)
     }
 }
-impl TransactionExecutor<&ChargeBack> for GeneratorState {
+impl TransactionExecutor<&ChargeBack> for &mut GeneratorState {
     type TransactionError = Infallible;
 
-    fn execute(mut self, transaction: &ChargeBack) -> Result<Self, Self::TransactionError> {
+    fn execute(self, transaction: &ChargeBack) -> Result<Self, Self::TransactionError> {
         let idx = self.deposit_tx_to_idx.get(&transaction.tx).unwrap();
         self.disputed_deposits.remove(idx);
         self.charged_back_deposits.insert(*idx);
         Ok(self)
     }
 }
-impl TransactionExecutor<&Resolve> for GeneratorState {
+impl TransactionExecutor<&Resolve> for &mut GeneratorState {
     type TransactionError = Infallible;
 
-    fn execute(mut self, transaction: &Resolve) -> Result<Self, Self::TransactionError> {
+    fn execute(self, transaction: &Resolve) -> Result<Self, Self::TransactionError> {
         let idx = self.deposit_tx_to_idx.get(&transaction.tx).unwrap();
         self.disputed_deposits.remove(idx);
         self.ok_deposits.insert(*idx);
         Ok(self)
     }
 }
-impl TransactionExecutor<&Withdrawal> for GeneratorState {
+impl TransactionExecutor<&Withdrawal> for &mut GeneratorState {
     type TransactionError = Infallible;
 
-    fn execute(mut self, transaction: &Withdrawal) -> Result<Self, Self::TransactionError> {
+    fn execute(self, _transaction: &Withdrawal) -> Result<Self, Self::TransactionError> {
         Ok(self)
     }
 }
@@ -77,14 +77,14 @@ impl TransactionExecutor<&Withdrawal> for GeneratorState {
 impl TransactionExecutor<Transaction> for GeneratorState {
     type TransactionError = Infallible;
 
-    fn execute(self, transaction: Transaction) -> Result<Self, Self::TransactionError> {
+    fn execute(mut self, transaction: Transaction) -> Result<Self, Self::TransactionError> {
         match &transaction {
-            Transaction::Deposit(d) => self.execute(d),
-            Transaction::Dispute(d) => self.execute(d),
-            Transaction::ChargeBack(d) => self.execute(d),
-            Transaction::Resolve(d) => self.execute(d),
-            Transaction::Withdrawal(d) => self.execute(d),
-        };
+            Transaction::Deposit(d) => (&mut self).execute(d),
+            Transaction::Dispute(d) => (&mut self).execute(d),
+            Transaction::ChargeBack(d) => (&mut self).execute(d),
+            Transaction::Resolve(d) => (&mut self).execute(d),
+            Transaction::Withdrawal(d) => (&mut self).execute(d),
+        }?;
         self.transactions.push(transaction);
         Ok(self)
     }
@@ -133,7 +133,10 @@ fn main() {
     let mut rng1 = thread_rng();
     let mut rng2 = thread_rng();
 
-    let generator = (0..100_000_000)
+    let max_transactions = 100_000_000;
+    let max_clients = (max_transactions / 40_000) as u16;
+
+    let generator = (0..=max_transactions)
         .map(|i| {
             (
                 i,
@@ -142,9 +145,11 @@ fn main() {
         })
         .fold(GeneratorState::default(), |state, (i, ty)| {
             let transaction = match ty {
-                TransactionDiscriminants::Deposit => {
-                    Transaction::new_deposit(i, rng2.gen(), UCurrency::from_bits(rng2.gen::<u64>()))
-                }
+                TransactionDiscriminants::Deposit => Transaction::new_deposit(
+                    i,
+                    rng2.gen_range(1..=max_clients),
+                    UCurrency::from_bits(rng2.gen::<u64>()),
+                ),
                 TransactionDiscriminants::Dispute => {
                     if state.ok_deposits.is_empty() {
                         return state;
@@ -171,11 +176,11 @@ fn main() {
                 }
                 TransactionDiscriminants::Withdrawal => Transaction::new_withdrawal(
                     i,
-                    rng2.gen(),
+                    rng2.gen_range(1..=max_clients),
                     UCurrency::from_bits(rng2.gen::<u64>()),
                 ),
             };
-            transaction.execute(state).unwrap()
+            state.execute(transaction).unwrap()
         });
 
     write_csv(generator.into_iter(), std::io::stdout()).unwrap();

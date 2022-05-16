@@ -5,7 +5,7 @@ mod parser;
 mod transaction;
 mod writer;
 
-type FRAC = fixed::types::extra::U16;
+type Frac = fixed::types::extra::U16;
 
 /// Fixed point integer currency type with 4 decimals of precision
 // fixed crate says `Δ = 1/2^f` solving 0.0001 = 1/2^x gives 13.2877 bits required for
@@ -17,9 +17,9 @@ type FRAC = fixed::types::extra::U16;
 // to represent the integral part meaning 2^16 = 65536 values.
 // Using 64 bit instead we get 2^(64-16) = 2^48 = 281_474_976_710_656 for UCurrency
 // and -140_737_488_355_328 to 140_737_488_355_327.9999 for ICurrency which should be enough for a while.
-pub type ICurrency = fixed::FixedI64<FRAC>;
+pub type ICurrency = fixed::FixedI64<Frac>;
 /// Fixed precision **unsigned** integer currency type with 4 decimals of precision
-pub type UCurrency = fixed::FixedU64<FRAC>;
+pub type UCurrency = fixed::FixedU64<Frac>;
 
 pub use client::*;
 pub use ledger::*;
@@ -33,10 +33,8 @@ pub fn execute<R: std::io::Read, W: std::io::Write>(
 ) -> Result<(), error::Error> {
     let transactions = parse_csv(reader)?;
     let mut ledger = Ledger::default();
-    for transaction in transactions {
-        if let Ok(transaction) = transaction {
-            ledger.execute(transaction).ok();
-        }
+    for transaction in transactions.flatten() {
+        ledger.execute(transaction).ok();
     }
 
     Ok(write_csv(&ledger, writer)?)

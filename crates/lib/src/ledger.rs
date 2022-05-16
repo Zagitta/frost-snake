@@ -22,24 +22,40 @@ impl std::fmt::Display for DepositState {
         })
     }
 }
+#[derive(Default, Debug, Clone, PartialEq)]
+
+struct ClientAccountAndDeposits {
+    account: ClientAccount,
+    deposits: HashMap<u32, (UCurrency, DepositState)>,
+}
+
+impl ClientAccountAndDeposits {
+    pub fn new(client: u16) -> Self {
+        Self {
+            account: ClientAccount::new(client),
+            deposits: Default::default(),
+        }
+    }
+}
 
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct Ledger {
-    clients: HashMap<u16, (ClientAccount, HashMap<u32, (UCurrency, DepositState)>)>,
+    clients: HashMap<u16, ClientAccountAndDeposits>,
 }
 
 fn get_deposit_and_state_mut(
     deposits: &mut HashMap<u32, (UCurrency, DepositState)>,
     tx: u32,
-) -> Result<&mut (UCurrency, DepositState), TransactionExecutionError> {
+) -> Result<(UCurrency, &mut DepositState), TransactionExecutionError> {
     deposits
         .get_mut(&tx)
         .ok_or(TransactionExecutionError::DepositNotFound(tx))
+        .map(|(amount, state)| (*amount, state))
 }
 
 impl Ledger {
     pub fn iter(&self) -> impl Iterator<Item = &ClientAccount> {
-        self.clients.values().map(|(client, _)| client)
+        self.clients.values().map(|client| &client.account)
     }
 
     pub fn execute(
@@ -47,34 +63,34 @@ impl Ledger {
         transaction: Transaction,
     ) -> Result<&mut Self, TransactionExecutionError> {
         let client_id = transaction.get_client_id();
-        let (client, deposits) = self
+        let ClientAccountAndDeposits { account, deposits } = self
             .clients
             .entry(client_id)
-            .or_insert_with(|| (ClientAccount::new(client_id), HashMap::default()));
+            .or_insert_with(|| ClientAccountAndDeposits::new(client_id));
 
         match transaction {
             Transaction::Deposit(d) => {
                 let tx = d.tx;
                 let amount = d.amount;
-                *client = client.deposit(d)?;
+                *account = account.deposit(d)?;
                 deposits.insert(tx, (amount, DepositState::Ok));
             }
             Transaction::Dispute(d) => {
                 let (amount, state) = get_deposit_and_state_mut(deposits, d.tx)?;
-                (*client, *state) = client.dispute(d, *amount, *state)?;
+                (*account, *state) = account.dispute(d, amount, *state)?;
             }
             Transaction::ChargeBack(c) => {
                 let (amount, state) = get_deposit_and_state_mut(deposits, c.tx)?;
 
-                (*client, *state) = client.charge_back(c, *amount, *state)?;
+                (*account, *state) = account.charge_back(c, amount, *state)?;
             }
             Transaction::Resolve(r) => {
                 let (amount, state) = get_deposit_and_state_mut(deposits, r.tx)?;
 
-                (*client, *state) = client.resolve(r, *amount, *state)?;
+                (*account, *state) = account.resolve(r, amount, *state)?;
             }
             Transaction::Withdrawal(w) => {
-                *client = client.withdraw(w)?;
+                *account = account.withdraw(w)?;
             }
         }
 
@@ -84,7 +100,7 @@ impl Ledger {
 
 #[cfg(test)]
 mod tests {
-    use super::ClientAccount;
+    use super::{ClientAccount, ClientAccountAndDeposits};
     use crate::transaction::Transaction;
     use crate::{DepositState, Ledger, TransactionExecutionError, UCurrency};
     use fixed_macro::types::I48F16 as icur;
@@ -107,15 +123,15 @@ mod tests {
             Ok(&mut Ledger {
                 clients: HashMap::from([(
                     client,
-                    (
-                        ClientAccount {
+                    ClientAccountAndDeposits {
+                        account: ClientAccount {
                             id: client,
                             held: ucur!(0),
                             available: icur!(1),
                             locked: false,
                         },
-                        HashMap::from([(tx, (amount, DepositState::Ok))]),
-                    ),
+                        deposits: HashMap::from([(tx, (amount, DepositState::Ok))])
+                    },
                 )]),
             })
         );
@@ -134,15 +150,15 @@ mod tests {
             &mut Ledger {
                 clients: HashMap::from([(
                     client,
-                    (
-                        ClientAccount {
+                    (ClientAccountAndDeposits {
+                        account: ClientAccount {
                             id: client,
                             held: amount,
                             available: icur!(0),
                             locked: false,
                         },
-                        HashMap::from([(tx, (amount, DepositState::Disputed))])
-                    )
+                        deposits: HashMap::from([(tx, (amount, DepositState::Disputed))])
+                    })
                 )])
             }
         )
@@ -207,15 +223,15 @@ mod tests {
             Ok(&mut Ledger {
                 clients: HashMap::from([(
                     client,
-                    (
-                        ClientAccount {
+                    ClientAccountAndDeposits {
+                        account: ClientAccount {
                             id: client,
                             held: ucur!(0),
                             available: icur!(-1),
                             locked: true,
                         },
-                        HashMap::from([(tx, (amount, DepositState::ChargedBack))])
-                    )
+                        deposits: HashMap::from([(tx, (amount, DepositState::ChargedBack))])
+                    }
                 )])
             })
         )

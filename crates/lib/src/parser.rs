@@ -53,13 +53,13 @@ fn extract_field_map(headers: &StringRecord) -> Result<FieldToIndexMap, ParserEr
     })
 }
 
-struct CustomIterator<R: std::io::Read> {
+struct TransactionCsvIterator<R: std::io::Read> {
     buf: ByteRecord,
     field_map: FieldToIndexMap,
     reader: csv::Reader<R>,
 }
 
-impl<R: std::io::Read> Iterator for CustomIterator<R> {
+impl<R: std::io::Read> Iterator for TransactionCsvIterator<R> {
     type Item = Result<Transaction, ParserError>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -71,12 +71,12 @@ impl<R: std::io::Read> Iterator for CustomIterator<R> {
     }
 }
 
-pub fn parse_from_reader<'a, R: std::io::Read>(
+pub fn parse_from_reader<R: std::io::Read>(
     mut reader: csv::Reader<R>,
 ) -> Result<impl Iterator<Item = Result<Transaction, ParserError>>, ParserError> {
     let field_map = extract_field_map(reader.headers()?)?;
 
-    Ok(CustomIterator {
+    Ok(TransactionCsvIterator {
         buf: ByteRecord::new(),
         field_map,
         reader,

@@ -10,11 +10,8 @@ ascii = "1"
 csv = "1"
 fixed = { version = "1", features = ["std"] }
 fixed-macro = "1"
-im-rc = "15"
 itoa = "1"
 thiserror = "1"
-tracing = "0.1"
-tracing-subscriber = "0.2"
 strum = "0.24"
 strum_macros = "0.24"
 
