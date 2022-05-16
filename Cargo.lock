@@ -23,6 +23,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ascii"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbf56136a5198c7b01a49e3afcbef6cf84597273d298f54432926024107b0109"
+
+[[package]]
 name = "atty"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -328,7 +334,7 @@ dependencies = [
 name = "frost-snake-lib"
 version = "0.1.0"
 dependencies = [
- "az",
+ "ascii",
  "criterion",
  "csv",
  "csv-diff",
@@ -336,7 +342,7 @@ dependencies = [
  "fixed",
  "fixed-macro",
  "glob",
- "im",
+ "im-rc",
  "itoa 1.0.1",
  "strum",
  "strum_macros",
@@ -384,10 +390,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "im"
+name = "im-rc"
 version = "15.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0acd33ff0285af998aaf9b57342af478078f53492322fafc47450e09397e0e9"
+checksum = "af1955a75fa080c677d3972822ec4bad316169ab1cfc6c257a942c2265dbe5fe"
 dependencies = [
  "bitmaps",
  "rand_core",

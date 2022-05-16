@@ -1,5 +1,6 @@
 use crate::transaction::*;
-use csv::StringRecord;
+use ascii::AsciiStr;
+use csv::{ByteRecord, StringRecord};
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -23,6 +24,8 @@ pub enum ParserError {
     IntParseError(#[from] std::num::ParseIntError),
     #[error(transparent)]
     CurrencyParseError(#[from] fixed::ParseFixedError),
+    #[error(transparent)]
+    InvalidAscii(#[from] ascii::AsAsciiStrError),
 }
 
 const MISSING_TYPE_HEADER: ParserError = ParserError::MissingHeader(Header::Type);
@@ -50,14 +53,37 @@ fn extract_field_map(headers: &StringRecord) -> Result<FieldToIndexMap, ParserEr
     })
 }
 
-pub fn parse_from_reader<R: std::io::Read>(
+struct CustomIterator<R: std::io::Read> {
+    buf: ByteRecord,
+    field_map: FieldToIndexMap,
+    reader: csv::Reader<R>,
+}
+
+impl<R: std::io::Read> Iterator for CustomIterator<R> {
+    type Item = Result<Transaction, ParserError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.reader.read_byte_record(&mut self.buf) {
+            Ok(true) => {
+                //parse
+                Some(parse_transaction(&self.buf, self.field_map))
+            }
+            Ok(false) => None, //EOF
+            Err(e) => Some(Err(e.into())),
+        }
+    }
+}
+
+pub fn parse_from_reader<'a, R: std::io::Read>(
     mut reader: csv::Reader<R>,
 ) -> Result<impl Iterator<Item = Result<Transaction, ParserError>>, ParserError> {
     let field_map = extract_field_map(reader.headers()?)?;
 
-    Ok(reader
-        .into_records()
-        .flat_map(move |res| res.map(|rec| parse_transaction(&rec, field_map))))
+    Ok(CustomIterator {
+        buf: ByteRecord::new(),
+        field_map,
+        reader,
+    })
 }
 
 pub fn parse_csv(
@@ -65,7 +91,7 @@ pub fn parse_csv(
 ) -> Result<impl Iterator<Item = Result<Transaction, ParserError>>, ParserError> {
     parse_from_reader(
         csv::ReaderBuilder::new()
-            .trim(csv::Trim::All)
+            .trim(csv::Trim::Headers)
             .from_reader(reader),
     )
 }
@@ -78,38 +104,51 @@ struct FieldToIndexMap {
     amount: u8,
 }
 
-#[inline]
 fn parse_transaction(
-    record: &StringRecord,
+    record: &ByteRecord,
     field_map: FieldToIndexMap,
 ) -> Result<Transaction, ParserError> {
-    let tx = record
-        .get(field_map.tx.into())
-        .ok_or(MISSING_TX_HEADER)?
+    let tx = AsciiStr::from_ascii(record.get(field_map.tx.into()).ok_or(MISSING_TX_HEADER)?)?
+        .as_str()
+        .trim()
         .parse()?;
-    let client = record
-        .get(field_map.client.into())
-        .ok_or(MISSING_CLIENT_HEADER)?
-        .parse()?;
-    let ty = record.get(field_map.ty.into()).ok_or(MISSING_TYPE_HEADER)?;
+    let client = AsciiStr::from_ascii(
+        record
+            .get(field_map.client.into())
+            .ok_or(MISSING_CLIENT_HEADER)?,
+    )?
+    .as_str()
+    .trim()
+    .parse()?;
+    let ty = AsciiStr::from_ascii(record.get(field_map.ty.into()).ok_or(MISSING_TYPE_HEADER)?)?
+        .as_str()
+        .trim();
 
     Ok(match ty {
         //case sensitive for performance and simplicity reasons
         "withdrawal" => Transaction::new_withdrawal(
             tx,
             client,
-            record
-                .get(field_map.amount.into())
-                .ok_or(MISSING_AMOUNT_HEADER)?
-                .parse()?,
+            AsciiStr::from_ascii(
+                record
+                    .get(field_map.amount.into())
+                    .ok_or(MISSING_AMOUNT_HEADER)?,
+            )?
+            .as_str()
+            .trim()
+            .parse()?,
         ),
         "deposit" => Transaction::new_deposit(
             tx,
             client,
-            record
-                .get(field_map.amount.into())
-                .ok_or(MISSING_AMOUNT_HEADER)?
-                .parse()?,
+            AsciiStr::from_ascii(
+                record
+                    .get(field_map.amount.into())
+                    .ok_or(MISSING_AMOUNT_HEADER)?,
+            )?
+            .as_str()
+            .trim()
+            .parse()?,
         ),
         "dispute" => Transaction::new_dispute(tx, client),
         "chargeback" => Transaction::new_charge_back(tx, client),
@@ -133,7 +172,7 @@ mod tests {
     #[test]
     fn parsing_missing_amount_fails_with_missing_header() {
         assert!(matches!(
-            parse_transaction(&StringRecord::from(vec!["deposit", "1", "1"]), FIELD_MAP),
+            parse_transaction(&ByteRecord::from(vec!["deposit", "1", "1"]), FIELD_MAP),
             Err(ParserError::MissingHeader(Header::Amount))
         ));
     }
@@ -141,7 +180,7 @@ mod tests {
     fn can_parse_deposit_transaction() {
         assert_eq!(
             parse_transaction(
-                &StringRecord::from(vec!["deposit", "1", "1", "10.0001"]),
+                &ByteRecord::from(vec!["deposit", "1", "1", "10.0001"]),
                 FIELD_MAP
             )
             .unwrap(),
@@ -152,7 +191,7 @@ mod tests {
     fn can_parse_withdrawal_transaction() {
         assert_eq!(
             parse_transaction(
-                &StringRecord::from(vec!["withdrawal", "1", "1", "10.0001"]),
+                &ByteRecord::from(vec!["withdrawal", "1", "1", "10.0001"]),
                 FIELD_MAP
             )
             .unwrap(),
@@ -163,7 +202,7 @@ mod tests {
     fn negative_withdrawal_fails() {
         assert!(matches!(
             parse_transaction(
-                &StringRecord::from(vec!["withdrawal", "1", "1", "-1"]),
+                &ByteRecord::from(vec!["withdrawal", "1", "1", "-1"]),
                 FIELD_MAP,
             ),
             Err(ParserError::CurrencyParseError(_))
@@ -173,7 +212,7 @@ mod tests {
     fn negative_deposit_fails() {
         assert!(matches!(
             parse_transaction(
-                &StringRecord::from(vec!["deposit", "1", "1", "-1"]),
+                &ByteRecord::from(vec!["deposit", "1", "1", "-1"]),
                 FIELD_MAP,
             ),
             Err(ParserError::CurrencyParseError(_))
@@ -182,23 +221,39 @@ mod tests {
     #[test]
     fn can_parse_dispute_transaction() {
         assert_eq!(
-            parse_transaction(&StringRecord::from(vec!["dispute", "1", "1"]), FIELD_MAP).unwrap(),
+            parse_transaction(&ByteRecord::from(vec!["dispute", "1", "1"]), FIELD_MAP).unwrap(),
             Transaction::new_dispute(1, 1)
         );
     }
     #[test]
     fn can_parse_resolve_transaction() {
         assert_eq!(
-            parse_transaction(&StringRecord::from(vec!["resolve", "1", "1"]), FIELD_MAP).unwrap(),
+            parse_transaction(&ByteRecord::from(vec!["resolve", "1", "1"]), FIELD_MAP).unwrap(),
             Transaction::new_resolve(1, 1)
         );
     }
     #[test]
     fn can_parse_charge_back_transaction() {
         assert_eq!(
-            parse_transaction(&StringRecord::from(vec!["chargeback", "1", "1"]), FIELD_MAP)
-                .unwrap(),
+            parse_transaction(&ByteRecord::from(vec!["chargeback", "1", "1"]), FIELD_MAP).unwrap(),
             Transaction::new_charge_back(1, 1)
+        );
+    }
+
+    #[test]
+    fn can_handle_whitespace() {
+        assert_eq!(
+            parse_transaction(
+                &ByteRecord::from(vec![
+                    "   deposit ",
+                    " 1  ",
+                    "   1            ",
+                    "  1.0                "
+                ]),
+                FIELD_MAP
+            )
+            .unwrap(),
+            Transaction::new_deposit(1, 1, currency!(1.0))
         );
     }
 

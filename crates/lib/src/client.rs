@@ -2,7 +2,6 @@ use crate::{
     transaction::{ChargeBack, Deposit, Dispute, Resolve, TransactionExecutor, Withdrawal},
     ICurrency, Transaction, UCurrency,
 };
-use az::CheckedAs;
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
