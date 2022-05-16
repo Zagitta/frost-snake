@@ -13,7 +13,7 @@ use strum::VariantNames;
 #[derive(Debug, Default)]
 struct GeneratorState {
     transactions: Vec<Transaction>,
-    tx_to_idx: HashMap<u32, usize>,
+    deposit_tx_to_idx: HashMap<u32, usize>,
     ok_deposits: HashSet<usize>,
     disputed_deposits: HashSet<usize>,
     charged_back_deposits: HashSet<usize>,
@@ -25,56 +25,67 @@ impl GeneratorState {
     }
 }
 
-impl TransactionExecutor<Deposit> for GeneratorState {
+impl TransactionExecutor<&Deposit> for GeneratorState {
     type TransactionError = Infallible;
 
-    fn execute(mut self, deposit: Deposit) -> Result<Self, Self::TransactionError> {
-        self.tx_to_idx.insert(deposit.tx, self.transactions.len());
+    fn execute(mut self, transaction: &Deposit) -> Result<Self, Self::TransactionError> {
+        self.deposit_tx_to_idx
+            .insert(transaction.tx, self.transactions.len());
         self.ok_deposits.insert(self.transactions.len());
-        self.transactions
-            .push(Transaction::Deposit(deposit.clone()));
         Ok(self)
     }
 }
 
-impl TransactionExecutor<Dispute> for GeneratorState {
+impl TransactionExecutor<&Dispute> for GeneratorState {
     type TransactionError = Infallible;
 
-    fn execute(mut self, transaction: Dispute) -> Result<Self, Self::TransactionError> {
-        let idx = self.tx_to_idx.get(&transaction.tx).unwrap();
+    fn execute(mut self, transaction: &Dispute) -> Result<Self, Self::TransactionError> {
+        let idx = self.deposit_tx_to_idx.get(&transaction.tx).unwrap();
         self.ok_deposits.remove(idx);
         self.disputed_deposits.insert(*idx);
-        self.transactions.push(Transaction::Dispute(transaction));
         Ok(self)
     }
 }
-impl TransactionExecutor<ChargeBack> for GeneratorState {
+impl TransactionExecutor<&ChargeBack> for GeneratorState {
     type TransactionError = Infallible;
 
-    fn execute(mut self, transaction: ChargeBack) -> Result<Self, Self::TransactionError> {
-        let idx = self.tx_to_idx.get(&transaction.tx).unwrap();
+    fn execute(mut self, transaction: &ChargeBack) -> Result<Self, Self::TransactionError> {
+        let idx = self.deposit_tx_to_idx.get(&transaction.tx).unwrap();
         self.disputed_deposits.remove(idx);
         self.charged_back_deposits.insert(*idx);
-        self.transactions.push(Transaction::ChargeBack(transaction));
         Ok(self)
     }
 }
-impl TransactionExecutor<Resolve> for GeneratorState {
+impl TransactionExecutor<&Resolve> for GeneratorState {
     type TransactionError = Infallible;
 
-    fn execute(mut self, transaction: Resolve) -> Result<Self, Self::TransactionError> {
-        let idx = self.tx_to_idx.get(&transaction.tx).unwrap();
+    fn execute(mut self, transaction: &Resolve) -> Result<Self, Self::TransactionError> {
+        let idx = self.deposit_tx_to_idx.get(&transaction.tx).unwrap();
         self.disputed_deposits.remove(idx);
         self.ok_deposits.insert(*idx);
-        self.transactions.push(Transaction::Resolve(transaction));
         Ok(self)
     }
 }
-impl TransactionExecutor<Withdrawal> for GeneratorState {
+impl TransactionExecutor<&Withdrawal> for GeneratorState {
     type TransactionError = Infallible;
 
-    fn execute(mut self, transaction: Withdrawal) -> Result<Self, Self::TransactionError> {
-        self.transactions.push(Transaction::Withdrawal(transaction));
+    fn execute(mut self, transaction: &Withdrawal) -> Result<Self, Self::TransactionError> {
+        Ok(self)
+    }
+}
+
+impl TransactionExecutor<Transaction> for GeneratorState {
+    type TransactionError = Infallible;
+
+    fn execute(self, transaction: Transaction) -> Result<Self, Self::TransactionError> {
+        match &transaction {
+            Transaction::Deposit(d) => self.execute(d),
+            Transaction::Dispute(d) => self.execute(d),
+            Transaction::ChargeBack(d) => self.execute(d),
+            Transaction::Resolve(d) => self.execute(d),
+            Transaction::Withdrawal(d) => self.execute(d),
+        };
+        self.transactions.push(transaction);
         Ok(self)
     }
 }
@@ -117,11 +128,8 @@ pub fn write_csv<W: Write>(
 }
 
 fn main() {
-    //These weights aren't exact as sometimes we get unlucky and fx generate
-    //a dispute tx that was already Disputed or ChargedBack
     const WEIGHTS: [usize; Transaction::VARIANTS.len()] = [100, 2, 1, 1, 96];
     let dist = WeightedIndex::new(WEIGHTS).unwrap();
-    let max_clients = 1000;
     let mut rng1 = thread_rng();
     let mut rng2 = thread_rng();
 
@@ -134,11 +142,9 @@ fn main() {
         })
         .fold(GeneratorState::default(), |state, (i, ty)| {
             let transaction = match ty {
-                TransactionDiscriminants::Deposit => Transaction::new_deposit(
-                    i,
-                    rng2.gen_range(1..max_clients),
-                    UCurrency::from_num(rng2.gen::<f32>()),
-                ),
+                TransactionDiscriminants::Deposit => {
+                    Transaction::new_deposit(i, rng2.gen(), UCurrency::from_bits(rng2.gen::<u64>()))
+                }
                 TransactionDiscriminants::Dispute => {
                     if state.ok_deposits.is_empty() {
                         return state;
@@ -165,8 +171,8 @@ fn main() {
                 }
                 TransactionDiscriminants::Withdrawal => Transaction::new_withdrawal(
                     i,
-                    rng2.gen_range(1..max_clients),
-                    UCurrency::from_num(rng2.gen::<f32>()),
+                    rng2.gen(),
+                    UCurrency::from_bits(rng2.gen::<u64>()),
                 ),
             };
             transaction.execute(state).unwrap()
