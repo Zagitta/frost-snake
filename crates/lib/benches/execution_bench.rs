@@ -1,8 +1,6 @@
-use std::{env, fs::File, io::BufReader, time::Instant};
-
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use frost_snake_lib::{execute, Ledger, Transaction, TransactionExecutor, UCurrency};
-use glob::glob;
+use frost_snake_lib::execute;
+use std::{fs::File, io::BufReader};
 
 pub fn execution_bench(c: &mut Criterion) {
     let cases = &[(100_0000, "tests/test-cases/100k-complex.input.csv")];

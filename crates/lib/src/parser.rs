@@ -64,10 +64,7 @@ impl<R: std::io::Read> Iterator for CustomIterator<R> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.reader.read_byte_record(&mut self.buf) {
-            Ok(true) => {
-                //parse
-                Some(parse_transaction(&self.buf, self.field_map))
-            }
+            Ok(true) => Some(parse_transaction(&self.buf, self.field_map)),
             Ok(false) => None, //EOF
             Err(e) => Some(Err(e.into())),
         }

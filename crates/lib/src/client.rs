@@ -1,48 +1,8 @@
 use crate::{
-    transaction::{ChargeBack, Deposit, Dispute, Resolve, TransactionExecutor, Withdrawal},
-    ICurrency, Transaction, UCurrency,
+    transaction::{ChargeBack, Deposit, Dispute, Resolve, Withdrawal},
+    DepositState, ICurrency, UCurrency,
 };
 use thiserror::Error;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum DepositState {
-    Ok,
-    Disputed,
-    ChargedBack,
-}
-
-impl std::fmt::Display for DepositState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            DepositState::Ok => "Ok",
-            DepositState::Disputed => "Disputed",
-            DepositState::ChargedBack => "ChargedBack",
-        })
-    }
-}
-
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct ClientAccount {
-    pub id: u16,
-    pub locked: bool,
-    pub available: ICurrency,
-    pub held: UCurrency,
-}
-
-impl ClientAccount {
-    pub fn new(id: u16) -> Self {
-        Self {
-            id,
-            ..Default::default()
-        }
-    }
-
-    pub fn total(&self) -> ICurrency {
-        // Panic on the edge case that the client has +- ~140 trillion assets...
-        self.available.checked_add_unsigned(self.held).unwrap()
-    }
-}
 
 #[derive(Error, Debug, PartialEq, Eq)]
 pub enum TransactionExecutionError {
@@ -66,10 +26,28 @@ pub enum TransactionExecutionError {
     Underflow,
 }
 
-impl TransactionExecutor<Deposit> for ClientAccount {
-    type TransactionError = TransactionExecutionError;
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ClientAccount {
+    pub id: u16,
+    pub locked: bool,
+    pub available: ICurrency,
+    pub held: UCurrency,
+}
 
-    fn execute(mut self, deposit: Deposit) -> Result<Self, Self::TransactionError> {
+impl ClientAccount {
+    pub fn new(id: u16) -> Self {
+        Self {
+            id,
+            ..Default::default()
+        }
+    }
+
+    pub fn total(&self) -> ICurrency {
+        // Panic on the edge case that the client has +- ~140 trillion assets...
+        self.available.checked_add_unsigned(self.held).unwrap()
+    }
+
+    pub fn deposit(mut self, deposit: Deposit) -> Result<Self, TransactionExecutionError> {
         assert_eq!(self.id, deposit.client);
 
         self.available = self
@@ -79,12 +57,8 @@ impl TransactionExecutor<Deposit> for ClientAccount {
 
         Ok(self)
     }
-}
 
-impl TransactionExecutor<Withdrawal> for ClientAccount {
-    type TransactionError = TransactionExecutionError;
-
-    fn execute(mut self, withdrawal: Withdrawal) -> Result<Self, Self::TransactionError> {
+    pub fn withdraw(mut self, withdrawal: Withdrawal) -> Result<Self, TransactionExecutionError> {
         assert_eq!(self.id, withdrawal.client);
 
         // This is not defined in the specification but it does not
@@ -104,96 +78,90 @@ impl TransactionExecutor<Withdrawal> for ClientAccount {
 
         Ok(self)
     }
-}
 
-impl TransactionExecutor<Dispute> for (ClientAccount, UCurrency, DepositState) {
-    type TransactionError = TransactionExecutionError;
-
-    fn execute(self, dispute: Dispute) -> Result<Self, Self::TransactionError> {
-        let (mut this, amount, state) = self;
-
-        if state != DepositState::Ok {
+    pub fn dispute(
+        mut self,
+        dispute: Dispute,
+        amount: UCurrency,
+        deposit_state: DepositState,
+    ) -> Result<(Self, DepositState), TransactionExecutionError> {
+        if deposit_state != DepositState::Ok {
             return Err(TransactionExecutionError::InvalidDepositState {
                 tx: dispute.tx,
                 expected_state: DepositState::Ok,
-                actual_state: state,
+                actual_state: deposit_state,
             });
         }
 
-        this.available = this
+        self.available = self
             .available
             .checked_sub_unsigned(amount)
             .ok_or(TransactionExecutionError::Underflow)?;
 
-        this.held = this
+        self.held = self
             .held
             .checked_add(amount)
             .ok_or(TransactionExecutionError::Overflow)?;
 
-        Ok((this, amount, DepositState::Disputed))
+        Ok((self, DepositState::Disputed))
     }
-}
 
-impl TransactionExecutor<Resolve> for (ClientAccount, UCurrency, DepositState) {
-    type TransactionError = TransactionExecutionError;
-
-    fn execute(self, resolve: Resolve) -> Result<Self, Self::TransactionError> {
-        let (mut this, amount, state) = self;
-
-        if state != DepositState::Disputed {
+    pub fn resolve(
+        mut self,
+        resolve: Resolve,
+        amount: UCurrency,
+        deposit_state: DepositState,
+    ) -> Result<(Self, DepositState), TransactionExecutionError> {
+        if deposit_state != DepositState::Disputed {
             return Err(TransactionExecutionError::InvalidDepositState {
                 tx: resolve.tx,
                 expected_state: DepositState::Disputed,
-                actual_state: state,
+                actual_state: deposit_state,
             });
         }
 
-        this.available = this
+        self.available = self
             .available
             .checked_add_unsigned(amount)
             .ok_or(TransactionExecutionError::Overflow)?;
 
-        this.held = this
+        self.held = self
             .held
             .checked_sub(amount)
             .expect("held should never underflow");
 
-        Ok((this, amount, DepositState::Ok))
+        Ok((self, DepositState::Ok))
     }
-}
 
-impl TransactionExecutor<ChargeBack> for (ClientAccount, UCurrency, DepositState) {
-    type TransactionError = TransactionExecutionError;
-
-    fn execute(self, charge_back: ChargeBack) -> Result<Self, Self::TransactionError> {
-        let (mut this, amount, state) = self;
-
-        if state != DepositState::Disputed {
+    pub fn charge_back(
+        mut self,
+        charge_back: ChargeBack,
+        amount: UCurrency,
+        deposit_state: DepositState,
+    ) -> Result<(Self, DepositState), TransactionExecutionError> {
+        if deposit_state != DepositState::Disputed {
             return Err(TransactionExecutionError::InvalidDepositState {
                 tx: charge_back.tx,
                 expected_state: DepositState::Disputed,
-                actual_state: state,
+                actual_state: deposit_state,
             });
         }
 
-        this.held = this
+        self.held = self
             .held
             .checked_sub(amount)
             .expect("held should never underflow");
 
-        this.locked = true;
+        self.locked = true;
 
-        Ok((this, amount, DepositState::ChargedBack))
+        Ok((self, DepositState::ChargedBack))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::ClientAccount;
-    use crate::transaction::Transaction;
-    use crate::{
-        Deposit, DepositState, Dispute, TransactionExecutionError, TransactionExecutor, Withdrawal,
-    };
+    use crate::{ChargeBack, Deposit, DepositState, Dispute, TransactionExecutor, Withdrawal};
     use fixed_macro::types::I48F16 as icur;
     use fixed_macro::types::U48F16 as ucur;
 
@@ -206,7 +174,7 @@ mod tests {
         let amount = ucur!(1);
         let deposit = Deposit { tx, client, amount };
         assert_eq!(
-            ClientAccount::new(client).execute(deposit),
+            ClientAccount::new(client).deposit(deposit),
             Ok(ClientAccount {
                 id: client,
                 held: ucur!(0),
@@ -224,7 +192,7 @@ mod tests {
                 id: client,
                 ..Default::default()
             }
-            .execute(Withdrawal {
+            .withdraw(Withdrawal {
                 tx: 1,
                 client,
                 amount: ucur!(1)
@@ -235,6 +203,26 @@ mod tests {
                 available: icur!(0),
                 held: ucur!(0),
             })
+        );
+    }
+
+    #[test]
+    fn can_dispute() {
+        assert_eq!(
+            ClientAccount::new(client).dispute(
+                Dispute { tx: 1, client },
+                ucur!(1.0),
+                DepositState::Ok
+            ),
+            Ok((
+                ClientAccount {
+                    id: client,
+                    locked: false,
+                    available: icur!(-1),
+                    held: ucur!(1),
+                },
+                DepositState::Disputed
+            ))
         );
     }
 }
