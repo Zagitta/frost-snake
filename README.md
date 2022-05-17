@@ -1,7 +1,8 @@
 # Considerations while writing this implementation
 
+For this code challenge I decided to primarily focus on writing a correct implementation and then optimizing it to process transactions as fast as possible.
 
-
+Below I've written some of my considerations for the 5 rating criteria as well as some of the ambiguities I ran into and how I resolved them.
 
 ## Specification Ambiguity
 Below is a list of the various things that either weren't described in the specification or were ambiguous along with how I've chosen to resolve them:
@@ -64,9 +65,9 @@ As such I switched to regular `std` hashmaps and moved the deposit tracking out 
 
 This yielded a significant improvement but it turns out that the `csv` crate's serde implementation is both lacking in features and slow. After optimizing the transaction execution the CSV parsing was taking in excess of 75% of the total execution time.
 
-As such I rewrote the implementation to use the `read_byte_record()` API of csv. This comes with the tradeoff that the parser *only* supports ASCII input however, given the data format specified and the large 40-50% throughput increase it yielded, that is well worth the limitation.
+As a consequence I rewrote the implementation to use the `read_byte_record()` API of csv. This comes with the tradeoff that the parser *only* supports ASCII input, but given the data format specified and the large 40-50% throughput increase it yielded, it's well worth the limitation.
 
-Another large throughput gain was achieved by disabling the string trimming of the `Csv` parser.
+Another large throughput gain was achieved by disabling the string trimming of the `csv` parser.
 For some unknown reason enabling trimming causes a large amount of allocations to happen.
 So it was handled by calling `trim` on the `AsciiStr` for each field instead which nearly doubled the performance.
 
