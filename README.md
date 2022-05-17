@@ -35,6 +35,9 @@ Below is a list of the various things that either weren't described in the speci
   As such I decided to compromise on using 64 bit fixed point integers for currency handling as these are very fast and with a 16bit fraction able to handle our 4 digits of precision in a range of +- 140 trillion.
   This should certainly be enough to cover even the largest of client accounts considering the world GDP of 2020 was 80 trillion USD and the Government Pension Fund of Norway (the worlds largest sovereign wealth fund) has around 1.35 trillion USD worth of assets.
 
+## Completeness
+
+All transaction types are fully handled.
 
 ## Correctness
 
@@ -46,7 +49,13 @@ This generates sample data with based on a weighted distribution of 50% deposits
 
 The large 100k transaction files have not been fully checked for correctness. Instead the `cli` was used to calculate the output and then manually checked a few of the output entries for correctness.
 
-## Optimization
+## Safety and Robustness
+
+There are no instances of unsafe code in the crate. The main point of risk is in the `Ledger::execute` function as one need to be sure to not overwrite the mutable state.
+
+Another risk is adhering 100% to the specification in terms of not double checking that `tx` ids are globally unique. They are only checked on a per client basis but hopefully that should handle most of the danger in terms of being resilient against replay attacks.
+
+## Efficiency
 
 The generator was mostly used as a tool for benchmarking the code with `criterion` as can be seen in `crates/lib/benches` which can be run with `cargo bench`. The code was also profiled using flamegraph.
 
@@ -68,3 +77,9 @@ With all of these optimizations the program more than quadrupled it's throughput
 Below an example of the final version's flamegraph processing a ~3GB file with a 100 million transactions in ~5 seconds can be seen:
 
 ![alt text](flamegraph.svg)
+
+## Maintainability
+
+Due to the optimizations above the program isn't the most beautiful or maintainable ever. However as with all engineering it's a tradeoff and in this case I thought demonstrating the performance optimizations would be more interesting.
+
+One example where the maintainability has suffered the most is in the serialization and deserialization department as it's vastly simpler to add another field to a `serde` derived struct than it is to add more fields to the fairly custom parsing logic.
