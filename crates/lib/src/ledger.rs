@@ -102,9 +102,7 @@ impl Ledger {
 mod tests {
     use super::{ClientAccount, ClientAccountAndDeposits};
     use crate::transaction::Transaction;
-    use crate::{DepositState, Ledger, TransactionExecutionError, UCurrency};
-    use fixed_macro::types::I48F16 as icur;
-    use fixed_macro::types::U48F16 as ucur;
+    use crate::{icur, ucur, DepositState, Ledger, TransactionExecutionError, UCurrency};
     use std::collections::HashMap;
 
     //make it easier to construct stuff

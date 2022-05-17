@@ -21,6 +21,9 @@ pub type ICurrency = fixed::FixedI64<Frac>;
 /// Fixed precision **unsigned** integer currency type with 4 decimals of precision
 pub type UCurrency = fixed::FixedU64<Frac>;
 
+pub use fixed_macro::types::I48F16 as icur;
+pub use fixed_macro::types::U48F16 as ucur;
+
 pub use client::*;
 pub use ledger::*;
 pub use parser::{parse_csv, parse_from_reader};

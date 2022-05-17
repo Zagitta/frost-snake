@@ -162,9 +162,7 @@ impl ClientAccount {
 mod tests {
     use super::ClientAccount;
     use crate::ChargeBack;
-    use crate::{Deposit, DepositState, Dispute, Resolve, Withdrawal};
-    use fixed_macro::types::I48F16 as icur;
-    use fixed_macro::types::U48F16 as ucur;
+    use crate::{icur, ucur, Deposit, DepositState, Dispute, Resolve, Withdrawal};
 
     #[allow(non_upper_case_globals)] //make it easier to construct ClientAccount
     const client: u16 = 1;

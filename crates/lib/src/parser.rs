@@ -160,7 +160,7 @@ fn parse_transaction(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fixed_macro::types::U48F16 as currency;
+    use crate::ucur;
 
     const FIELD_MAP: FieldToIndexMap = FieldToIndexMap {
         ty: 0,
@@ -184,7 +184,7 @@ mod tests {
                 FIELD_MAP
             )
             .unwrap(),
-            Transaction::new_deposit(1, 1, currency!(10.0001))
+            Transaction::new_deposit(1, 1, ucur!(10.0001))
         );
     }
     #[test]
@@ -195,7 +195,7 @@ mod tests {
                 FIELD_MAP
             )
             .unwrap(),
-            Transaction::new_withdrawal(1, 1, currency!(10.0001))
+            Transaction::new_withdrawal(1, 1, ucur!(10.0001))
         );
     }
     #[test]
@@ -253,7 +253,7 @@ mod tests {
                 FIELD_MAP
             )
             .unwrap(),
-            Transaction::new_deposit(1, 1, currency!(1.0))
+            Transaction::new_deposit(1, 1, ucur!(1.0))
         );
     }
 

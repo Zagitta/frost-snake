@@ -34,3 +34,51 @@ pub fn write_csv<W: Write>(ledger: &Ledger, writer: W) -> Result<(), std::io::Er
 
     writer.flush()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::ucur;
+    use crate::Ledger;
+    use crate::Transaction;
+
+    #[test]
+    fn outputs_correctly() {
+        let mut buf = Vec::new();
+        let mut l = Ledger::default();
+        l.execute(crate::Transaction::new_deposit(1, 1, ucur!(1.0)))
+            .unwrap();
+        super::write_csv(&l, &mut buf).unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&buf),
+            "client,available,held,total,locked\n1,1.0000,0.0000,1.0000,false\n"
+        );
+
+        buf.clear();
+        let mut l = Ledger::default();
+        l.execute(Transaction::new_deposit(2, 2, ucur!(10)))
+            .unwrap()
+            .execute(Transaction::new_dispute(2, 2))
+            .unwrap()
+            .execute(Transaction::new_charge_back(2, 2))
+            .unwrap();
+        super::write_csv(&l, &mut buf).unwrap();
+        let result = String::from_utf8_lossy(&buf);
+        assert_eq!(
+            result,
+            "client,available,held,total,locked\n2,0.0000,0.0000,0.0000,true\n"
+        );
+
+        buf.clear();
+        let mut l = Ledger::default();
+        l.execute(Transaction::new_deposit(3, 3, ucur!(10)))
+            .unwrap()
+            .execute(Transaction::new_dispute(3, 3))
+            .unwrap();
+        super::write_csv(&l, &mut buf).unwrap();
+        let result = String::from_utf8_lossy(&buf);
+        assert_eq!(
+            result,
+            "client,available,held,total,locked\n3,0.0000,10.0000,10.0000,false\n"
+        );
+    }
+}
