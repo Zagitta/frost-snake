@@ -3,7 +3,10 @@ use crate::{
     transaction::Transaction,
     UCurrency,
 };
-use std::collections::HashMap;
+use std::collections::{
+    hash_map::Entry::{Occupied, Vacant},
+    HashMap,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -72,8 +75,16 @@ impl Ledger {
             Transaction::Deposit(d) => {
                 let tx = d.tx;
                 let amount = d.amount;
-                *account = account.deposit(d)?;
-                deposits.insert(tx, (amount, DepositState::Ok));
+
+                let ent = deposits.entry(tx);
+
+                match ent {
+                    Occupied(_) => return Err(TransactionExecutionError::DuplicateDeposit(tx)),
+                    Vacant(ent) => {
+                        *account = account.deposit(d)?;
+                        ent.insert((amount, DepositState::Ok));
+                    }
+                }
             }
             Transaction::Dispute(d) => {
                 let (amount, state) = get_deposit_and_state_mut(deposits, d.tx)?;

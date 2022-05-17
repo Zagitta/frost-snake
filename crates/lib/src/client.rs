@@ -10,6 +10,8 @@ pub enum TransactionExecutionError {
     InsufficientFunds,
     #[error("The deposit tx = {0}, was not found")]
     DepositNotFound(u32),
+    #[error("The deposit tx = {0} already exists")]
+    DuplicateDeposit(u32),
     #[error("Account is locked")]
     AccountLocked,
     #[error(
